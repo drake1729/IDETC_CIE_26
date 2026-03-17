@@ -3,10 +3,10 @@ EPSPI — Pseudocode for All 11 Estimation Methods
 Overview
 Data and Notation
 df        : corpus of N = 19,181 lines
-EP_COLS   : [Behaviourism, Cognitivism, Constructivism]   -- P = 3 binary flags
+EP_COLS   : [Behaviourism, Cognitivism, Constructivism]    P = 3 binary flags
 SKILL_COLS: [Problem Solving, Creativity,
-             Collaborative Learning, Critical Thinking]   -- K = 4 binary flags
-EPISODE   : integer episode label per line                -- E = 49 episodes
+             Collaborative Learning, Critical Thinking]    K = 4 binary flags
+EPISODE   : integer episode label per line                 E = 49 episodes
 ALPHA     : 1   (Laplace smoothing constant, shared by all methods)
 
 
