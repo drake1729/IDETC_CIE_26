@@ -8,22 +8,22 @@ SKILL_COLS: [Problem Solving, Creativity,
              Collaborative Learning, Critical Thinking]   -- K = 4 binary flags
 EPISODE   : integer episode label per line                -- E = 49 episodes
 ALPHA     : 1   (Laplace smoothing constant, shared by all methods)
-```
+
 
 EPSPI Three-layer architecture
-```
+
 Layer 1 : EPSPI_n   computed at LINE level  (N lines)
 Layer 2 : EPSPI_e   = mean(EPSPI_n) within episode e
 Layer 3 : CV r(EPSPI_e, Y_obs_e)  evaluated at EPISODE level
-```
 
----
+
+
 
 Global Theta Matrix
 
 Used as input by Methods A, B, C, D, G, H, and K.
 
-```
+
 FUNCTION global_theta(data, alpha=1):
     theta = zeros(P, K)
     FOR each EP_i in [Behaviourism, Cognitivism, Constructivism]:
@@ -122,7 +122,7 @@ FUNCTION fit(data):
     RETURN beta, sigma_u
 
 FUNCTION predict(line, beta):
-    -- Marginal prediction: set random intercept u_ej = 0
+      Marginal prediction: set random intercept u_ej = 0
     probs = []
     FOR each Skill_j:
         x = [1, X_n1, X_n2, X_n3]
@@ -187,7 +187,7 @@ Axis: Dimensionality Reduction
 Parameters: 8-entry lookup table (one per unique EP pattern)
 
 FUNCTION fit(data):
-    profiles = unique rows of EP flag matrix   -- at most 2^3 = 8 rows
+    profiles = unique rows of EP flag matrix    at most 2^3 = 8 rows
     standardise profiles (zero mean, unit variance per column)
     apply PCA, extract PC1 scores for each unique profile
     normalise PC1 scores to [0, 1]
@@ -210,17 +210,17 @@ patterns exist. Treats EP patterns as points in Euclidean space.
 
 
 Method G_CA: (Correspondence Analysis)
-Axis:Dimensionality Reduction  
+Axis: Dimensionality Reduction  
 Parameters: 3 EP row scores (one per EP)
 
 FUNCTION fit(data, alpha=1):
     N_mat[i,j] = count of lines where EP_i=1 AND Skill_j=1   + alpha
-    P_mat      = N_mat / sum(N_mat)              -- joint probability table
-    r_mass     = row sums of P_mat               -- EP marginals
-    c_mass     = column sums of P_mat            -- Skill marginals
-    S          = Dr^{-1/2} * (P - r*c') * Dc^{-1/2}   -- standardised residuals
+    P_mat      = N_mat / sum(N_mat)               joint probability table
+    r_mass     = row sums of P_mat                EP marginals
+    c_mass     = column sums of P_mat            Skill marginals
+    S          = Dr^{-1/2} * (P - r*c') * Dc^{-1/2}    standardised residuals
     U, sigma, V = SVD(S)
-    row_coords = Dr^{-1/2} * U[:,0] * sigma[0]  -- Dimension 1 row coordinates
+    row_coords = Dr^{-1/2} * U[:,0] * sigma[0]   Dimension 1 row coordinates
 
        Sign anchor (domain knowledge, applied every fold):
     IF Constructivism coordinate < mean(other coordinates):
@@ -244,10 +244,10 @@ Axis: Dimensionality Reduction
 Parameters: P + K = 7 (W loading vector + H component vector, rank-1)
 
 FUNCTION fit(data):
-    theta = global_theta(data)          -- shape (3, 4), all non-negative
-    clip theta to [0, inf)              -- ensure non-negativity for NMF
-    factorise: theta ≈ W * H            -- rank-1: W is (3,1), H is (1,4)
-    ep_scores = W.flatten()             -- one score per EP
+    theta = global_theta(data)           shape (3, 4), all non-negative
+    clip theta to [0, inf)               ensure non-negativity for NMF
+    factorise: theta ≈ W * H             rank-1: W is (3,1), H is (1,4)
+    ep_scores = W.flatten()             one score per EP
     normalise ep_scores to [0, 1]
     RETURN normalised ep_scores, reconstruction_error, H
 
@@ -275,7 +275,7 @@ FUNCTION fit(data):
         pi_j = P(Skill_j = 1) = base rate of skill j in data
         FOR each EP_i:
             P(EP_i=1 | Skill_j=1) = (count EP_i=1 AND Skill_j=1 + 1)
-                                     / (count Skill_j=1 + 2)   -- Laplace alpha=1
+                                     / (count Skill_j=1 + 2)   Laplace alpha=1
             P(EP_i=1 | Skill_j=0) = (count EP_i=1 AND Skill_j=0 + 1)
                                      / (count Skill_j=0 + 2)
     RETURN all likelihoods and priors
@@ -349,14 +349,14 @@ FUNCTION build_loo_theta(data):
        For each episode e, compute global_theta from all lines EXCEPT episode e
     FOR each episode e:
         loo_theta[e] = global_theta(data excluding episode e)
-    RETURN loo_theta                     -- dict {episode → (3,4) array}
+    RETURN loo_theta                      dict {episode → (3,4) array}
 
 FUNCTION build_features(data, loo_theta):
       15-dimensional feature vector per line
     FOR each line n:
-        ep_flags   = [X_n1, X_n2, X_n3]               -- 3 values
-        theta_flat = loo_theta[episode_n].flatten()    -- 12 values
-        x_n        = concatenate(ep_flags, theta_flat) -- 15 values
+        ep_flags   = [X_n1, X_n2, X_n3]               3 values
+        theta_flat = loo_theta[episode_n].flatten()    12 values
+        x_n        = concatenate(ep_flags, theta_flat)  15 values
     RETURN feature_matrix (N × 15)
 
 FUNCTION fit(data):
@@ -369,7 +369,7 @@ FUNCTION fit(data):
 
 FUNCTION predict(lines, scaler, svr_model):
     X_scaled = scaler.transform(build_features(lines, loo_theta))
-    RETURN svr_model.predict(X_scaled)   -- continuous score, not bounded [0,1]
+    RETURN svr_model.predict(X_scaled)   continuous score, not bounded [0,1]
 
 CV FUNCTION fp_K(df_train, df_test):
        LOO theta for training episodes: from training fold only
@@ -437,7 +437,7 @@ PROCEDURE compute_aic_bic(epspi_column, k_method):
         log_lik  = sum(Y_nj * log(p_n) + (1-Y_nj) * log(1-p_n))
         total_ll += log_lik
 
-    k_total = k_method + 2 * K     -- method params + 2 per skill (slope+intercept)
+    k_total = k_method + 2 * K     method params + 2 per skill (slope+intercept)
     AIC     = 2 * k_total - 2 * total_ll
     BIC     = k_total * log(N) - 2 * total_ll
     RETURN AIC, BIC
@@ -473,8 +473,8 @@ X_ni : Binary flag: EP i active in line n
 Y_nj : Binary flag: Skill j present in line n 
 θ_ij : P(Skill_j=1 \ EP_i=1), Laplace-smoothed 
 EPSPI_n : Line-level index ∈ [0,1] (except Method K)
-EPSPI_e  Episode mean of EPSPI_n 
-Ȳ_e  Observed episode skill rate (ground truth)
-ε_e  Residual: Ȳ_e − EPSPI_e 
-α Laplace smoothing constant = 1 
+EPSPI_e : Episode mean of EPSPI_n 
+Ȳ_e : Observed episode skill rate (ground truth)
+ε_e : Residual: Ȳ_e − EPSPI_e 
+α : Laplace smoothing constant = 1 
 
