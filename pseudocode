@@ -21,7 +21,7 @@ Layer 3 : CV r(EPSPI_e, Y_obs_e)  evaluated at EPISODE level
 
 Global Theta Matrix
 
-Used as input by Methods A, B, C, D, G, H, and K.
+
 
 
 FUNCTION global_theta(data, alpha=1):
