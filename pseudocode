@@ -1,9 +1,7 @@
-# EPSPI — Pseudocode for All 11 Estimation Methods
+EPSPI — Pseudocode for All 11 Estimation Methods
 
-## Overview
-
-**Input data**
-```
+Overview
+Data and Notation
 df        : corpus of N = 19,181 lines
 EP_COLS   : [Behaviourism, Cognitivism, Constructivism]   -- P = 3 binary flags
 SKILL_COLS: [Problem Solving, Creativity,
@@ -12,7 +10,7 @@ EPISODE   : integer episode label per line                -- E = 49 episodes
 ALPHA     : 1   (Laplace smoothing constant, shared by all methods)
 ```
 
-**Three-layer architecture**
+EPSPI Three-layer architecture
 ```
 Layer 1 : EPSPI_n   computed at LINE level  (N lines)
 Layer 2 : EPSPI_e   = mean(EPSPI_n) within episode e
@@ -21,7 +19,7 @@ Layer 3 : CV r(EPSPI_e, Y_obs_e)  evaluated at EPISODE level
 
 ---
 
-## Shared Foundation — Global Theta Matrix
+Global Theta Matrix
 
 Used as input by Methods A, B, C, D, G, H, and K.
 
@@ -33,133 +31,56 @@ FUNCTION global_theta(data, alpha=1):
         FOR each Skill_j in [PS, Cr, CL, CT]:
             n_ij = count of lines where EP_i = 1 AND Skill_j = 1
             theta[i,j] = (n_ij + alpha) / (n_i + K * alpha)
-    RETURN theta                          -- shape (3, 4)
-```
+    RETURN theta                           - shape (3, 4)
 
----
 
-## Method A — Simple Average
+Method A_Simple: Simple Average
 
-**Axis:** Direct Estimation  
-**Parameters:** 0 free (uses shared theta)
-
-```
+Axis: Direct Estimation  
+Parameters: 0 free parameters (uses shared theta)
 FUNCTION fit(data):
     theta = global_theta(data)
     RETURN theta
 
 FUNCTION predict(line, theta):
     active_EPs = [i : X_ni = 1]
-    IF no active EPs:
+    IF no active EPs:                          [Safety check in case $p_n = 0$]
         RETURN mean of all theta values
     RETURN mean over active EPs of (mean of theta row i across K skills)
 
 FUNCTION epspi_episode(episode):
     RETURN mean(EPSPI_n for all lines n in episode)
-```
 
-**Key property:** Closed-form. No estimation. Zero-parameter baseline.
+Key property: Closed-form. No estimation. Zero-parameter baseline.
 
----
+Method B_Delta: \mathbf{\delta}-Weighted Average
+Axis: Direct Estimation  
+Parameters: 0 free parameters (uses shared theta + episode EP proportions)
 
-## Method B — Delta (EP-Frequency Weighted)
-
-**Axis:** Direct Estimation  
-**Parameters:** 0 free (uses shared theta + episode EP proportions)
-
-```
 FUNCTION fit(data):
     theta    = global_theta(data)
-    delta[e] = mean of EP flags over all lines in episode e   -- shape (E, P)
+    delta[e] = mean of EP flags over all lines in episode e   -[ shape (E, P)]
     RETURN theta, delta
 
 FUNCTION predict(line, theta, delta):
     e   = episode of line
-    w   = delta[e]                        -- EP proportions for episode e
-    w   = w / sum(w)                      -- normalise (guard: sum + 1e-12)
+    w   = delta[e]                         [EP proportions for episode e]
+    w   = w / sum(w)                       [normalise (guard: sum + 1e-12)]
     RETURN sum over i of (w[i] * mean of theta row i across K skills)
 
 NOTE (CV): delta for test episodes uses their own EP structure only
            (no skill labels involved → no leakage)
-```
 
-**Key property:** Episode-constant within each episode. Weights by how
-frequently each EP appears in that episode rather than treating all
+
+Key property: Episode-constant within each episode. Weights by how
+frequently, each EP appears in that episode rather than treating all
 active EPs equally.
 
----
+Method C_Logistic: Logistic Regression
 
-## Method C — PCA on EP Profile Space
+Axis: Predictive Modelling  
+Parameters: (P+1) × K = 16 (intercept + 3 EP coefficients per skill)
 
-**Axis:** Dimensionality Reduction  
-**Parameters:** 8-entry lookup table (one per unique EP pattern)
-
-```
-FUNCTION fit(data):
-    profiles = unique rows of EP flag matrix   -- at most 2^3 = 8 rows
-    standardise profiles (zero mean, unit variance per column)
-    apply PCA, extract PC1 scores for each unique profile
-    normalise PC1 scores to [0, 1]
-    RETURN lookup_table {EP_pattern → normalised_PC1_score}
-
-FUNCTION predict(line, lookup_table):
-    pattern = (X_n1, X_n2, X_n3)
-    IF pattern in lookup_table:
-        RETURN lookup_table[pattern]
-    ELSE:
-        RETURN 0.5   -- fallback for unseen pattern in CV
-
-HYPERPARAMETERS:
-    StandardScaler before PCA
-    n_components = min(2, n_features-1, n_patterns-1)
-    Only PC1 used for prediction
-```
-
-**Key property:** Reduces to 8-entry lookup table because only 8 EP
-patterns exist. Treats EP patterns as points in Euclidean space.
-
----
-
-## Method D — Correspondence Analysis (CA)
-
-**Axis:** Dimensionality Reduction  
-**Parameters:** 3 EP row scores (one per EP)
-
-```
-FUNCTION fit(data, alpha=1):
-    N_mat[i,j] = count of lines where EP_i=1 AND Skill_j=1   + alpha
-    P_mat      = N_mat / sum(N_mat)              -- joint probability table
-    r_mass     = row sums of P_mat               -- EP marginals
-    c_mass     = column sums of P_mat            -- Skill marginals
-    S          = Dr^{-1/2} * (P - r*c') * Dc^{-1/2}   -- standardised residuals
-    U, sigma, V = SVD(S)
-    row_coords = Dr^{-1/2} * U[:,0] * sigma[0]  -- Dimension 1 row coordinates
-
-    -- Sign anchor (domain knowledge, applied every fold):
-    IF Constructivism coordinate < mean(other coordinates):
-        row_coords = -row_coords
-
-    normalise row_coords to [0, 1]
-    RETURN normalised EP scores (3 values)
-
-FUNCTION predict(line, ep_scores):
-    active_EPs = [i : X_ni = 1]
-    IF no active EPs:
-        RETURN mean(ep_scores)
-    RETURN mean(ep_scores[i] for i in active_EPs)
-```
-
-**Key property:** Chi-squared metric on EP×Skill contingency table.
-Sign anchored so Constructivism always maps to high EPSPI.
-
----
-
-## Method E — Logistic Regression
-
-**Axis:** Predictive Modelling  
-**Parameters:** (P+1) × K = 16 (intercept + 3 EP coefficients per skill)
-
-```
 FUNCTION fit(data):
     FOR each Skill_j in SKILL_COLS:
         fit logistic regression:
@@ -175,59 +96,17 @@ FUNCTION predict(line, beta):
     RETURN mean(probs)
 
 HYPERPARAMETERS:
-    L2 penalty, C = 1.0 (sklearn default)
+    L2 penalty, C = 1.0 (sklearn default, which uses L-BFGS, more on this is given in the companion paper)
     max_iter = 2000
     4 separate binary models (one per skill)
-```
 
-**Key property:** Discriminative. Models P(Skill | EP) directly.
+Key property: Discriminative. Models P(Skill | EP) directly.
 L2 penalty stabilises Constructivism coefficients against quasi-separation.
 
----
+Method D_GLMM: (Generalised Linear Mixed Model)
+Axis: Predictive Modelling  
+Parameters: (P+1)×K = 16 fixed effects + K random effect variances
 
-## Method F — Naïve Bayes (BernoulliNB)
-
-**Axis:** Predictive Modelling (Generative)  
-**Parameters:** 2P×K + K = 28 (class-conditional likelihoods + priors)
-
-```
-FUNCTION fit(data):
-    FOR each Skill_j:
-        pi_j = P(Skill_j = 1) = base rate of skill j in data
-        FOR each EP_i:
-            P(EP_i=1 | Skill_j=1) = (count EP_i=1 AND Skill_j=1 + 1)
-                                     / (count Skill_j=1 + 2)   -- Laplace alpha=1
-            P(EP_i=1 | Skill_j=0) = (count EP_i=1 AND Skill_j=0 + 1)
-                                     / (count Skill_j=0 + 2)
-    RETURN all likelihoods and priors
-
-FUNCTION predict(line, model):
-    probs = []
-    FOR each Skill_j:
-        apply Bayes' theorem with Bernoulli likelihood:
-            P(Skill_j=1 | X_n) ∝ pi_j * ∏_i P(EP_i=X_ni | Skill_j=1)
-        normalise to get posterior probability
-        probs.append( P(Skill_j=1 | X_n) )
-    RETURN mean(probs)
-
-HYPERPARAMETERS:
-    BernoulliNB (binary features, not multinomial)
-    Laplace smoothing alpha = 1 (sklearn default)
-    fit_prior = True (class priors estimated from data)
-```
-
-**Key property:** Generative model. Assumes EPs conditionally independent
-given skill status — the independence assumption is known to be violated
-here (Cognitivism and Behaviourism co-occur frequently).
-
----
-
-## Method G — GLMM (Logistic Mixed Model)
-
-**Axis:** Predictive Modelling  
-**Parameters:** (P+1)×K = 16 fixed effects + K random effect variances
-
-```
 FUNCTION fit(data):
     FOR each Skill_j:
         TRY:
@@ -257,53 +136,16 @@ HYPERPARAMETERS:
     Variational Bayes fitting (fit_vb)
     Random intercept per episode (not per line)
     Marginal prediction (u_ej = 0 at test time)
-```
 
-**Key property:** Accounts for within-episode correlation in coefficient
+Key property: Accounts for within-episode correlation in coefficient
 estimation. Predictions at the marginal (population-average) level are
 identical in form to Logistic Regression — the difference is only in
 how beta is estimated.
 
----
+Method E_GEE: (Generalised Estimating Equations)
+Axis: Predictive Modelling  
+Parameters: (P+1)×K = 16 fixed effects + K nuisance correlation parameters
 
-## Method H — NMF (Non-negative Matrix Factorisation)
-
-**Axis:** Dimensionality Reduction  
-**Parameters:** P + K = 7 (W loading vector + H component vector, rank-1)
-
-```
-FUNCTION fit(data):
-    theta = global_theta(data)          -- shape (3, 4), all non-negative
-    clip theta to [0, inf)              -- ensure non-negativity for NMF
-    factorise: theta ≈ W * H            -- rank-1: W is (3,1), H is (1,4)
-    ep_scores = W.flatten()             -- one score per EP
-    normalise ep_scores to [0, 1]
-    RETURN normalised ep_scores, reconstruction_error, H
-
-FUNCTION predict(line, ep_scores):
-    active_EPs = [i : X_ni = 1]
-    IF no active EPs:
-        RETURN mean(ep_scores)
-    RETURN mean(ep_scores[i] for i in active_EPs)
-
-HYPERPARAMETERS:
-    n_components = 1   (rank-1 factorisation)
-    max_iter = 50000   (high for convergence on small 3×4 matrix)
-    random_state = 42
-```
-
-**Key property:** Non-negativity constraint on W and H. Encodes a
-single additive latent "teaching mode." Rank-1 forces all skill
-predictions to be driven by a single EP-weighted composite.
-
----
-
-## Method I — GEE (Generalised Estimating Equations)
-
-**Axis:** Predictive Modelling  
-**Parameters:** (P+1)×K = 16 fixed effects + K nuisance correlation parameters
-
-```
 FUNCTION fit(data):
     FOR each Skill_j:
         TRY Stage 1 — Exchangeable working correlation:
@@ -334,21 +176,132 @@ HYPERPARAMETERS:
     MAX_BETA = 50 (quasi-separation guard)
     Three-stage fallback: Exchangeable → Independence → LR
     Groups = Episode (within-episode correlation modelled)
-```
 
-**Key property:** Population-average model. Exchangeable working
+Key property: Population-average model. Exchangeable working
 correlation accounts for within-episode clustering during coefficient
 estimation without requiring a parametric random effects distribution.
 Best CV r = 0.450.
 
----
+Method F_PCA: (Principal Component Analysis)
+Axis: Dimensionality Reduction  
+Parameters: 8-entry lookup table (one per unique EP pattern)
 
-## Method J — Random Forest
+FUNCTION fit(data):
+    profiles = unique rows of EP flag matrix   -- at most 2^3 = 8 rows
+    standardise profiles (zero mean, unit variance per column)
+    apply PCA, extract PC1 scores for each unique profile
+    normalise PC1 scores to [0, 1]
+    RETURN lookup_table {EP_pattern → normalised_PC1_score}
 
-**Axis:** Predictive Modelling (Non-parametric)  
-**Parameters:** 32 (8 EP patterns × 4 skills — lookup table)
+FUNCTION predict(line, lookup_table):
+    pattern = (X_n1, X_n2, X_n3)
+    IF pattern in lookup_table:
+        RETURN lookup_table[pattern]
+    ELSE:
+        RETURN 0.5   -- fallback for unseen pattern in CV
 
-```
+HYPERPARAMETERS:
+    StandardScaler before PCA
+    n_components = min(2, n_features-1, n_patterns-1)
+    Only PC1 used for prediction
+
+Key property: Reduces to 8-entry lookup table because only 8 EP
+patterns exist. Treats EP patterns as points in Euclidean space.
+
+
+Method G_CA: (Correspondence Analysis)
+Axis:Dimensionality Reduction  
+Parameters: 3 EP row scores (one per EP)
+
+FUNCTION fit(data, alpha=1):
+    N_mat[i,j] = count of lines where EP_i=1 AND Skill_j=1   + alpha
+    P_mat      = N_mat / sum(N_mat)              -- joint probability table
+    r_mass     = row sums of P_mat               -- EP marginals
+    c_mass     = column sums of P_mat            -- Skill marginals
+    S          = Dr^{-1/2} * (P - r*c') * Dc^{-1/2}   -- standardised residuals
+    U, sigma, V = SVD(S)
+    row_coords = Dr^{-1/2} * U[:,0] * sigma[0]  -- Dimension 1 row coordinates
+
+       Sign anchor (domain knowledge, applied every fold):
+    IF Constructivism coordinate < mean(other coordinates):
+        row_coords = -row_coords
+
+    normalise row_coords to [0, 1]
+    RETURN normalised EP scores (3 values)
+
+FUNCTION predict(line, ep_scores):
+    active_EPs = [i : X_ni = 1]
+    IF no active EPs:
+        RETURN mean(ep_scores)
+    RETURN mean(ep_scores[i] for i in active_EPs)
+
+Key property: Chi-squared metric on EP×Skill contingency table.
+Sign anchored so Constructivism always maps to high EPSPI.
+
+Method H_NMF: (Non-Negative Matrix Factorisation)
+
+Axis: Dimensionality Reduction  
+Parameters: P + K = 7 (W loading vector + H component vector, rank-1)
+
+FUNCTION fit(data):
+    theta = global_theta(data)          -- shape (3, 4), all non-negative
+    clip theta to [0, inf)              -- ensure non-negativity for NMF
+    factorise: theta ≈ W * H            -- rank-1: W is (3,1), H is (1,4)
+    ep_scores = W.flatten()             -- one score per EP
+    normalise ep_scores to [0, 1]
+    RETURN normalised ep_scores, reconstruction_error, H
+
+FUNCTION predict(line, ep_scores):
+    active_EPs = [i : X_ni = 1]
+    IF no active EPs:
+        RETURN mean(ep_scores)
+    RETURN mean(ep_scores[i] for i in active_EPs)
+
+HYPERPARAMETERS:
+    n_components = 1   (rank-1 factorisation)
+    max_iter = 50000   (high for convergence on small 3×4 matrix)
+    random_state = 42
+
+Key property: Non-negativity constraint on W and H. Encodes a
+single additive latent "teaching mode." Rank-1 forces all skill
+predictions to be driven by a single EP-weighted composite.
+
+Method I_NB: (Naïve Bayes)
+Axis: Predictive Modelling (Generative)  
+Parameters: 2P×K + K = 28 (class-conditional likelihoods + priors)
+
+FUNCTION fit(data):
+    FOR each Skill_j:
+        pi_j = P(Skill_j = 1) = base rate of skill j in data
+        FOR each EP_i:
+            P(EP_i=1 | Skill_j=1) = (count EP_i=1 AND Skill_j=1 + 1)
+                                     / (count Skill_j=1 + 2)   -- Laplace alpha=1
+            P(EP_i=1 | Skill_j=0) = (count EP_i=1 AND Skill_j=0 + 1)
+                                     / (count Skill_j=0 + 2)
+    RETURN all likelihoods and priors
+
+FUNCTION predict(line, model):
+    probs = []
+    FOR each Skill_j:
+        apply Bayes' theorem with Bernoulli likelihood:
+            P(Skill_j=1 | X_n) ∝ pi_j * ∏_i P(EP_i=X_ni | Skill_j=1)
+        normalise to get posterior probability
+        probs.append( P(Skill_j=1 | X_n) )
+    RETURN mean(probs)
+
+HYPERPARAMETERS:
+    BernoulliNB (binary features, not multinomial)
+    Laplace smoothing alpha = 1 (sklearn default)
+    fit_prior = True (class priors estimated from data)
+
+Key property: Generative model. Assumes EPs conditionally independent
+given skill status — the independence assumption is known to be violated
+here (Cognitivism and Behaviourism co-occur frequently).
+
+Method J_RF: (Random Forest)
+Axis: Predictive Modelling (Non-parametric)  
+Parameters: 32 (8 EP patterns × 4 skills — lookup table)
+
 FUNCTION fit(data):
     FOR each Skill_j:
         fit RandomForestClassifier on EP_flags → Skill_j
@@ -382,28 +335,24 @@ HYPERPARAMETERS:
     min_samples_leaf = 10
     max_features    = 'sqrt'  → floor(sqrt(3)) = 1 feature per split
     random_state    = 42
-```
 
-**Key property:** Non-parametric. No distributional assumptions.
+Key property: Non-parametric. No distributional assumptions.
 Reduces to lookup table for 3 binary inputs. LOEO predictions
 used for in-sample storage to give honest Train r.
 
----
+Method K_SVM: (Support Vector Machine)
 
-## Method K — SVM (Linear Kernel, SVR)
+Axis: Predictive Modelling  
+Parameters: 15 weights + 1 bias = 16
 
-**Axis:** Predictive Modelling  
-**Parameters:** 15 weights + 1 bias = 16
-
-```
 FUNCTION build_loo_theta(data):
-    -- For each episode e, compute global_theta from all lines EXCEPT episode e
+       For each episode e, compute global_theta from all lines EXCEPT episode e
     FOR each episode e:
         loo_theta[e] = global_theta(data excluding episode e)
     RETURN loo_theta                     -- dict {episode → (3,4) array}
 
 FUNCTION build_features(data, loo_theta):
-    -- 15-dimensional feature vector per line
+      15-dimensional feature vector per line
     FOR each line n:
         ep_flags   = [X_n1, X_n2, X_n3]               -- 3 values
         theta_flat = loo_theta[episode_n].flatten()    -- 12 values
@@ -423,10 +372,10 @@ FUNCTION predict(lines, scaler, svr_model):
     RETURN svr_model.predict(X_scaled)   -- continuous score, not bounded [0,1]
 
 CV FUNCTION fp_K(df_train, df_test):
-    -- LOO theta for training episodes: from training fold only
+       LOO theta for training episodes: from training fold only
     FOR each episode e in df_train:
         loo_fold[e] = global_theta(df_train excluding episode e)
-    -- Test episodes: use global theta from all training lines
+       Test episodes: use global theta from all training lines
     FOR each episode e in df_test:
         loo_fold[e] = global_theta(df_train)
     X_train = build_features(df_train, loo_fold)
@@ -440,18 +389,14 @@ HYPERPARAMETERS:
     C       = 1.0
     epsilon = 0.01
     scaling = MinMaxScaler (fit on training fold, applied to test fold)
-```
 
-**Key property:** Only method producing predictions outside [0,1].
+Key property: Only method producing predictions outside [0,1].
 15-feature input augments EP flags with leave-one-episode-out theta
 to encode local episode context. Largest Train/CV gap (Δr = 0.424)
 due to high-leverage episode memorisation.
 
----
+Shared Evaluation — Cross-Validation Loop
 
-## Shared Evaluation — Cross-Validation Loop
-
-```
 PROCEDURE cross_validate(method_function, data, episodes, n_folds=5):
     split episodes into 5 folds (KFold, shuffle=True, random_state=42)
     fold_r, fold_mse = [], []
@@ -477,15 +422,12 @@ PROCEDURE cross_validate(method_function, data, episodes, n_folds=5):
 
 NOTE: All lines from the same episode are always in the same fold.
       Beta (or theta) is re-estimated from scratch in every fold.
-```
 
----
+Shared Evaluation — AIC and BIC
 
-## Shared Evaluation — AIC and BIC
 
-```
--- Computed at LINE level using a common external logistic model.
--- Makes AIC comparable across all 11 methods on the same scale.
+Computed at LINE level using a common external logistic model.
+Makes AIC comparable across all 11 methods on the same scale.
 
 PROCEDURE compute_aic_bic(epspi_column, k_method):
     total_ll = 0
@@ -499,22 +441,17 @@ PROCEDURE compute_aic_bic(epspi_column, k_method):
     AIC     = 2 * k_total - 2 * total_ll
     BIC     = k_total * log(N) - 2 * total_ll
     RETURN AIC, BIC
-```
 
----
-
-## Shared Evaluation — Leverage Analysis
-
-```
+Shared Evaluation — Leverage Analysis
 PROCEDURE leverage_diagnostics(EPSPI_e, Y_obs_e, episodes):
-    -- OLS design matrix: X = [1 | EPSPI_e]  (E × 2)
-    H_diag    = diagonal of X(X'X)^{-1}X'           -- leverage h_e
+       OLS design matrix: X = [1 | EPSPI_e]  (E × 2)
+    H_diag    = diagonal of X(X'X)^{-1}X'           leverage h_e
     y_hat     = OLS fitted values
     residuals = Y_obs_e - y_hat
-    s²        = sum(residuals²) / (E - 2)            -- OLS MSE
+    s²        = sum(residuals²) / (E - 2)             OLS MSE
 
-    stud_resid = residuals / (sqrt(s²) * sqrt(1 - h_e))   -- studentised
-    cooks_d    = (stud_resid² / 2) * (h_e / (1 - h_e))    -- Cook's D
+    stud_resid = residuals / (sqrt(s²) * sqrt(1 - h_e))  studentised
+    cooks_d    = (stud_resid² / 2) * (h_e / (1 - h_e))    Cook's D
     dffits     = stud_resid * sqrt(h_e / (1 - h_e))
 
     THRESHOLDS:
@@ -523,24 +460,21 @@ PROCEDURE leverage_diagnostics(EPSPI_e, Y_obs_e, episodes):
         dffits        : |FF_e| > 2*sqrt(2/E) ≈ 0.404
 
     RETURN per-episode diagnostics table
-```
 
----
+Notation Reference
 
-## Notation Reference
+Symbol and Meaning
 
-| Symbol | Meaning |
-|---|---|
-| N | Total number of lines (19,181) |
-| E | Number of episodes (49) |
-| P | Number of Education Practices (3) |
-| K | Number of skills (4) |
-| X_ni | Binary flag: EP i active in line n |
-| Y_nj | Binary flag: Skill j present in line n |
-| θ_ij | P(Skill_j=1 \| EP_i=1), Laplace-smoothed |
-| EPSPI_n | Line-level index ∈ [0,1] (except Method K) |
-| EPSPI_e | Episode mean of EPSPI_n |
-| Ȳ_e | Observed episode skill rate (ground truth) |
-| ε_e | Residual: Ȳ_e − EPSPI_e |
-| α | Laplace smoothing constant = 1 |
+N : Total number of lines (19,181) 
+E : Number of episodes (49) 
+P : Number of Education Practices (3) 
+K : Number of skills (4) 
+X_ni : Binary flag: EP i active in line n 
+Y_nj : Binary flag: Skill j present in line n 
+θ_ij : P(Skill_j=1 \ EP_i=1), Laplace-smoothed 
+EPSPI_n : Line-level index ∈ [0,1] (except Method K)
+EPSPI_e  Episode mean of EPSPI_n 
+Ȳ_e  Observed episode skill rate (ground truth)
+ε_e  Residual: Ȳ_e − EPSPI_e 
+α Laplace smoothing constant = 1 
 
